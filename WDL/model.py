@@ -112,7 +112,7 @@ class WideDeep(Model):
         # inputs: 一个list，每个位置是一个特征的input，按照初始化model时给的特征顺序排列[离散，连续]
         # return: wide_dense_input, wide_sparse_input, deep_dense_input, deep_sparse_input
         inputs = tf.concat(inputs, axis=-1)  # batch, 特征个数
-        assert inputs.shape[1] == self.len_dense_feature + self.len_sparse_feature, '特征个数不匹配'
+        assert inputs.shape[1] == self.len_dense_feature + self.len_sparse_feature, '特征个数不匹配 {} != {}'.format(inputs.shape[1], self.len_dense_feature + self.len_sparse_feature)
         # wide_dense
         if len(self.wide_dense_feature_list) == 0:
             wide_dense_input = None
@@ -147,7 +147,7 @@ class WideDeep(Model):
         print('wide side featrues: ', ','.join(feat['feat_name']for feat in self.wide_feature_list))
         print('deep side featrues: ', ','.join(feat['feat_name']for feat in self.deep_feature_list))
         inputs = [Input(shape=(1,), dtype=tf.float32) for _ in
-                  range(self.len_dense_feature + self.len_dense_feature)]
+                  range(self.len_dense_feature + self.len_sparse_feature)]
         Model(inputs=inputs, outputs=self.call(inputs)).summary()
 
 # class WideDeep(Model):
