@@ -8,6 +8,7 @@
 @Time   : 2022/7/28 
 """
 
+
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Layer, Dropout, Input
 from tensorflow.keras.regularizers import l2
@@ -28,18 +29,31 @@ class Linear(Layer):
     def build(self, input_shape):
         # w 的维度是self.sparse_feature_length x 1
         # 之后要使用embedding_lookup
-        self.w = self.add_weight(name="w",
-                                 shape=(self.sparse_feature_length, 1),
-                                 regularizer=l2(self.w_reg),
-                                 trainable=True)
+        if self.sparse_feature_length != 0:
+            self.w = self.add_weight(name="w",
+                                     shape=(self.sparse_feature_length, 1),
+                                     regularizer=l2(self.w_reg),
+                                     trainable=True)
 
     def call(self, inputs: "[dense_input, sparse_input]", **kwargs):
         dense_input, sparse_input = inputs
-        dense_output = self.dense_layer(dense_input)  # batch_size, 1
+        if dense_input is not None:
+            dense_output = self.dense_layer(dense_input)  # batch_size, 1
+        else:
+            dense_output = None
         # (batch_size, len, 1) 沿axis=1 sum, 直接变成 (batch_size, 1)
-        sparse_output = tf.reduce_sum(tf.nn.embedding_lookup(self.w, sparse_input), axis=1)  # (batch_size, 1)
-        return dense_output + sparse_output  # (batch_size, 1)
+        if sparse_input is not None:
+            sparse_output = tf.reduce_sum(tf.nn.embedding_lookup(self.w, sparse_input), axis=1)  # (batch_size, 1)
+        else:
+            sparse_output = None
 
+        if dense_output is not None and sparse_output is not None:
+            output = dense_output + sparse_output
+        elif dense_output is not None:
+            output = dense_output
+        else:
+            output = sparse_output
+        return output  # (batch_size, 1)
 
 class DNN(Layer):
     def __init__(self, hidden_units, activation='relu', dropout=0.):
