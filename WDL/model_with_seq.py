@@ -18,7 +18,7 @@ from tensorflow.keras.regularizers import l2
 
 from WDL.modules import Linear, DNN, Attention_Layer
 
-class WideDeep(Model):
+class WideDeepDIN(Model):
     def __init__(self, dense_feature_list, sparse_feature_list,
                  wide_feature_list=[], deep_feature_list=[], hidden_units=[64, 32], activation='relu',
                  behavior_feature_list=[], att_hidden_units=[40, 20], att_activation='relu', seq_len=-1,
@@ -34,10 +34,10 @@ class WideDeep(Model):
         @param embed_reg: The regularizer of embedding.
         @param w_reg: The regularizer of Linear.
         """
-        super(WideDeep, self).__init__()
+        super(WideDeepDIN, self).__init__()
         self.dense_feature_list = dense_feature_list  # 连续特征
-        self.sparse_feature_list = sparse_feature_list  # 离散特征(其中包含序列特征，如有)
-        self.behavior_feature_list = behavior_feature_list # 序列特征(已经全部包含在离散特征里)
+        self.sparse_feature_list = sparse_feature_list  # 离散特征(不要包含序列特征如poi id，attention层会自动加入)
+        self.behavior_feature_list = behavior_feature_list # 序列特征(离散)
         self.seq_len = seq_len # 序列长度(定长)
         self.behavior_num = len(self.behavior_feature_list) #
         self.attention_layer = Attention_Layer(att_hidden_units, att_activation) # attention layer
@@ -63,7 +63,7 @@ class WideDeep(Model):
         self.deep_sparse_feature_list = [feat for feat in self.deep_feature_list
                                         if feat['type'] == 'sparse']  # wide侧的离散特征
 
-        # deep侧sparse feature的embed layer(只有deep部分离散特征需要embed)
+        # deep侧sparse feature的embed layer
         self.embed_layers = {
             'embed_' + feat['feat_name']: Embedding(input_dim=feat['feat_num'] + 1, # 0 留给未知/无
                                          input_length=1,
@@ -71,6 +71,15 @@ class WideDeep(Model):
                                          embeddings_initializer='random_uniform',
                                          embeddings_regularizer=l2(embed_reg))
             for i, feat in enumerate(self.deep_sparse_feature_list)
+        }
+        # 序列特征的embed layer
+        self.seq_embed_layers = {
+            'embed_' + feat['feat_name']: Embedding(input_dim=feat['feat_num'] + 1, # 0 留给未知/无
+                                         input_length=1,
+                                         output_dim=feat['embed_dim'],
+                                         embeddings_initializer='random_uniform',
+                                         embeddings_regularizer=l2(embed_reg))
+            for i, feat in enumerate(self.behavior_feature_list)
         }
 
         # wide 部分变量记录累计长度，初始化wide部分的dense layer
@@ -86,7 +95,8 @@ class WideDeep(Model):
         self.final_dense = Dense(1, activation=None)
 
     def call(self, inputs, **kwargs):
-        wide_dense_input, wide_sparse_input, deep_dense_input, deep_sparse_input, seq_input, item_input = self._get_input(inputs)
+        inputs, seq_input, item_input = inputs
+        wide_dense_input, wide_sparse_input, deep_dense_input, deep_sparse_input = self._get_input(inputs)
         # deep侧sparse embedding
         # batch, len * embed_dim
         deep_sparse_input_embed = None
@@ -97,15 +107,17 @@ class WideDeep(Model):
         # sequence mask
         mask = tf.cast(tf.not_equal(seq_input[:, :, 0], 0), dtype=tf.float32)  # (None, maxlen)
         # 序列 和 target item embedding
-        seq_input_embed = tf.concat([self.embed_layers['embed_' + feat['feat_name']](seq_input[:, :, i])
+        seq_input_embed = tf.concat([self.seq_embed_layers['embed_' + feat['feat_name']](seq_input[:, :, i])
                                      for i, feat in enumerate(self.behavior_feature_list)], axis=-1) # batch, seq_len, dim * num
 
-        item_input_embed = tf.concat([self.embed_layers['embed_' + feat['feat_name']](seq_input[:, i])
+        item_input_embed = tf.concat([self.seq_embed_layers['embed_' + feat['feat_name']](item_input[:, i])
                                      for i, feat in enumerate(self.behavior_feature_list)], axis=-1) # batch, dim * num
 
         # att
         # query: item_embed, batch, d*?
         # key, value: seq_embed, batch, maxlen, d*?
+        print(item_input_embed.shape)
+        print(seq_input_embed.shape)
         att_output = self.attention_layer([item_input_embed, seq_input_embed, seq_input_embed, mask])  # (None, d * 2)
 
         # Wide
@@ -133,13 +145,10 @@ class WideDeep(Model):
         outputs = tf.nn.sigmoid(0.5 * wide_out + 0.5 * deep_out)
         return outputs
 
-    def _get_input(self, inputs: '[wide deep inputs, seq_inputs, item_inputs]'):
+    def _get_input(self, inputs):
         # inputs: 一个list
-        # inputs[0]是非序列输入list，按照初始化model时给的特征顺序排列,
-        # inputs[1]是序列输入 [batch, seq_len, num]
-        # inputs[2]是target item [batch, num]
-        # return: wide_dense_input, wide_sparse_input, deep_dense_input, deep_sparse_input, seq_input, item_input
-        inputs, seq_inputs, item_inputs = inputs
+        # 非序列输入list，按照初始化model时给的特征顺序排列,
+        # return: wide_dense_input, wide_sparse_input, deep_dense_input, deep_sparse_input
         # 非序列特征处理
         inputs = tf.concat(inputs, axis=-1)  # batch, 特征个数
         assert inputs.shape[1] == self.len_dense_feature + self.len_sparse_feature, '特征个数不匹配 {} != {}'.format(inputs.shape[1], self.len_dense_feature + self.len_sparse_feature)
@@ -168,7 +177,7 @@ class WideDeep(Model):
             idx = [self.feature_idx[feat['feat_name']] for feat in self.deep_sparse_feature_list]
             deep_sparse_input = tf.cast(tf.gather(inputs, idx, axis=1), tf.int32) # sparse特征id要cast int
 
-        return wide_dense_input, wide_sparse_input, deep_dense_input, deep_sparse_input, seq_inputs, item_inputs # seq, item直接返回
+        return wide_dense_input, wide_sparse_input, deep_dense_input, deep_sparse_input
 
 
 
@@ -176,8 +185,12 @@ class WideDeep(Model):
     def summary(self, **kwargs):
         print('wide side featrues: ', ','.join(feat['feat_name']for feat in self.wide_feature_list))
         print('deep side featrues: ', ','.join(feat['feat_name']for feat in self.deep_feature_list))
-        inputs = [Input(shape=(1,), dtype=tf.float32) for _ in
-                  range(self.len_dense_feature + self.len_sparse_feature)]
+        non_seq_inputs = [Input(shape=(1,), dtype=tf.float32) for _ in
+                          range(self.len_dense_feature + self.len_sparse_feature)]
+
+        seq_inputs = Input(shape=(self.behavior_num, 1), dtype=tf.float32)
+        item_inputs = Input(shape=(1,), dtype=tf.float32)
+        inputs = [non_seq_inputs, seq_inputs, item_inputs]
         Model(inputs=inputs, outputs=self.call(inputs)).summary()
 
 # class WideDeep(Model):
