@@ -42,13 +42,13 @@ class WideDeepDIN(Model):
         self.behavior_num = len(self.behavior_feature_list) #
         self.attention_layer = Attention_Layer(att_hidden_units, att_activation) # attention layer
 
-        all_feature_list = dense_feature_list + sparse_feature_list  # 所有特征 [连续， 离散]
-        self.feature_idx = {feat['feat_name']: i for i, feat in enumerate(all_feature_list)} # 特征顺序记录
+        self.all_feature_list = dense_feature_list + sparse_feature_list  # 所有特征 [连续， 离散]
+        self.feature_idx = {feat['feat_name']: i for i, feat in enumerate(self.all_feature_list)} # 特征顺序记录
 
         if len(wide_feature_list) == 0:  # wide侧默认使用全部特征
-            wide_feature_list = all_feature_list
+            wide_feature_list = self.all_feature_list
         if len(deep_feature_list) == 0:  # deep侧默认使用全部特征
-            deep_feature_list = all_feature_list
+            deep_feature_list = self.all_feature_list
         self.wide_feature_list = wide_feature_list  # wide侧特征
         self.deep_feature_list = deep_feature_list  # deep侧特征
 
@@ -116,8 +116,6 @@ class WideDeepDIN(Model):
         # att
         # query: item_embed, batch, d*?
         # key, value: seq_embed, batch, maxlen, d*?
-        print(item_input_embed.shape)
-        print(seq_input_embed.shape)
         att_output = self.attention_layer([item_input_embed, seq_input_embed, seq_input_embed, mask])  # (None, d * 2)
 
         # Wide
