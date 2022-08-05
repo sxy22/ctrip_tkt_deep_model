@@ -17,7 +17,46 @@ import math
 from sklearn import metrics
 
 
+def get_gauc_v2(data,qid_col,label_col,y_pred_col):
+    df = data.copy()
+#     df[label_col] = df[label_col].astype(int)
+    # traceid下不同label的个数
+    label_nunique = df.groupby(qid_col)[label_col].nunique().to_dict()
+    df['label_nunique'] = df[qid_col].map(label_nunique)
+    # 选择均有正负例的traceid
+#    df = df[df['label_nunique'] > 1]
+    # traceid下产品曝光数
+    expos_cnt = df.groupby(qid_col)[label_col].size().to_dict()
+    # 每个traceid下的auc
+    auc_per_qid = df.groupby(qid_col).apply(get_auc, label_col, y_pred_col).to_dict()
+    df_auc = pd.DataFrame()
+    df_auc[qid_col] = df[qid_col].unique()
+    df_auc['auc_per_qid'] = df_auc[qid_col].map(auc_per_qid)
+    df_auc['expos_cnt'] = df_auc[qid_col].map(expos_cnt)
+    df_auc["auc_weight"] = df_auc['auc_per_qid'] * df_auc['expos_cnt']
+    df_auc_sum = df_auc.sum()
+    gauc = df_auc_sum["auc_weight"] / df_auc_sum["expos_cnt"]
+    return gauc
 
+
+def get_topn_v2(data, qid_col, label_col, rank_col, n):
+    def tophit_at_k(r, k):
+        r = np.asfarray(r)[:k] >= 1
+        return float(r.__contains__(1.0))
+
+    def get_tophit_k(target, pred_score, k):
+        zpd = list(zip(target, pred_score))
+        zpd.sort(key=lambda x: x[1], reverse=True)
+        pred_rank, _ = list(zip(*zpd))
+        return tophit_at_k(list(pred_rank), k)
+
+    traceids = set(data[qid_col].tolist())
+    data['score'] = 1 / data['fine_rank']
+    sums = 0
+    for traceid in traceids:
+        batch_data = data[data[qid_col] == traceid]
+        sums += get_tophit_k(batch_data[label_col].tolist(), batch_data['score'].tolist(), 3)
+    return (sums / len(traceids))
 
 # -- 转换dataframe --
 # use rdd partitions to solve the problem out of memory
