@@ -69,12 +69,12 @@ class WideDeep(Model):
         self.feature_length = 0
         for feat in self.wide_sparse_feature_list:
             self.index_mapping.append(self.feature_length)
-            self.feature_length += feat['feat_num']
+            self.feature_length += feat['feat_num'] + 1
 
         # wide, deep, output layer
-        self.dnn_network = DNN(hidden_units, activation, dnn_dropout)
+        self.dnn_network = DNN(hidden_units, activation, dnn_dropout, w_reg=w_reg)
         self.linear = Linear(self.feature_length, w_reg=w_reg)
-        self.final_dense = Dense(1, activation=None)
+        self.final_dense = Dense(1, activation=None, kernel_regularizer=l2(w_reg))
 
     def call(self, inputs, **kwargs):
         wide_dense_input, wide_sparse_input, deep_dense_input, deep_sparse_input = self._get_input(inputs)

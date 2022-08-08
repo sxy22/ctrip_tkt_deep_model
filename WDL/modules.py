@@ -24,7 +24,7 @@ class Linear(Layer):
         super(Linear, self).__init__()
         self.sparse_feature_length = sparse_feature_length
         self.w_reg = w_reg
-        self.dense_layer = Dense(1, activation=None)  # 连续特征直接过Dense
+        self.dense_layer = Dense(1, activation=None, kernel_regularizer=l2(self.w_reg))  # 连续特征直接过Dense
 
     def build(self, input_shape):
         # w 的维度是self.sparse_feature_length x 1
@@ -56,10 +56,10 @@ class Linear(Layer):
         return output  # (batch_size, 1)
 
 class DNN(Layer):
-    def __init__(self, hidden_units, activation='relu', dropout=0.):
+    def __init__(self, hidden_units, activation='relu', dropout=0., w_reg=1e-6):
 
         super(DNN, self).__init__()
-        self.dnn_network = [Dense(units=unit, activation=activation) for unit in hidden_units]
+        self.dnn_network = [Dense(units=unit, activation=activation, kernel_regularizer=l2(w_reg)) for unit in hidden_units]
         self.dropout = Dropout(dropout)
 
     def call(self, inputs, **kwargs):
@@ -89,11 +89,11 @@ def denseFeature(feat):
 
 
 class Attention_Layer(Layer):
-    def __init__(self, att_hidden_units, activation='prelu'):
+    def __init__(self, att_hidden_units, activation='relu', w_reg=1e-6):
         """
         """
         super(Attention_Layer, self).__init__()
-        self.att_dense = [Dense(unit, activation=activation) for unit in att_hidden_units]
+        self.att_dense = [Dense(unit, activation=activation, kernel_regularizer=l2(w_reg)) for unit in att_hidden_units]
         self.att_final_dense = Dense(1)
 
     def call(self, inputs):

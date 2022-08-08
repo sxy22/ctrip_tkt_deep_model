@@ -22,7 +22,7 @@ class WideDeepDIN(Model):
     def __init__(self, dense_feature_list, sparse_feature_list,
                  wide_feature_list=[], deep_feature_list=[], hidden_units=[64, 32], activation='relu',
                  behavior_feature_list=[], att_hidden_units=[40, 20], att_activation='relu', seq_len=-1,
-                 dnn_dropout=0.1, embed_reg=1e-6, w_reg=1e-6):
+                 dnn_dropout=0.1, embed_reg=1e-6, w_reg=1e-6, att_w_reg=1e-6):
         """
         @param dense_feature_list: dense features, [dict()]
         @param sparse_feature_list: sparse features, [dict()]
@@ -40,7 +40,7 @@ class WideDeepDIN(Model):
         self.behavior_feature_list = behavior_feature_list # 序列特征(离散)
         self.seq_len = seq_len # 序列长度(定长)
         self.behavior_num = len(self.behavior_feature_list) #
-        self.attention_layer = Attention_Layer(att_hidden_units, att_activation) # attention layer
+        self.attention_layer = Attention_Layer(att_hidden_units, att_activation, w_reg=att_w_reg) # attention layer
 
         self.all_feature_list = dense_feature_list + sparse_feature_list  # 所有特征 [连续， 离散]
         self.feature_idx = {feat['feat_name']: i for i, feat in enumerate(self.all_feature_list)} # 特征顺序记录
@@ -87,12 +87,12 @@ class WideDeepDIN(Model):
         self.feature_length = 0
         for feat in self.wide_sparse_feature_list:
             self.index_mapping.append(self.feature_length)
-            self.feature_length += feat['feat_num']
+            self.feature_length += feat['feat_num'] + 1
 
         # wide, deep, output layer
-        self.dnn_network = DNN(hidden_units, activation, dnn_dropout)
+        self.dnn_network = DNN(hidden_units, activation, dnn_dropout, w_reg=w_reg)
         self.linear = Linear(self.feature_length, w_reg=w_reg)
-        self.final_dense = Dense(1, activation=None)
+        self.final_dense = Dense(1, activation=None, kernel_regularizer=l2(w_reg))
 
     def call(self, inputs, **kwargs):
         inputs, seq_input, item_input = inputs
@@ -186,8 +186,8 @@ class WideDeepDIN(Model):
         non_seq_inputs = [Input(shape=(1,), dtype=tf.float32) for _ in
                           range(self.len_dense_feature + self.len_sparse_feature)]
 
-        seq_inputs = Input(shape=(self.behavior_num, 1), dtype=tf.float32)
-        item_inputs = Input(shape=(1,), dtype=tf.float32)
+        seq_inputs = Input(shape=(self.seq_len, 1), dtype=tf.float32)
+        item_inputs = Input(shape=(self.behavior_num,), dtype=tf.float32)
         inputs = [non_seq_inputs, seq_inputs, item_inputs]
         Model(inputs=inputs, outputs=self.call(inputs)).summary()
 
