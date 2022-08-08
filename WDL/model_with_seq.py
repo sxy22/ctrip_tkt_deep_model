@@ -186,7 +186,7 @@ class WideDeepDIN(Model):
         non_seq_inputs = [Input(shape=(1,), dtype=tf.float32) for _ in
                           range(self.len_dense_feature + self.len_sparse_feature)]
 
-        seq_inputs = Input(shape=(self.seq_len, 1), dtype=tf.float32)
+        seq_inputs = Input(shape=(self.seq_len, self.behavior_num), dtype=tf.float32)
         item_inputs = Input(shape=(self.behavior_num,), dtype=tf.float32)
         inputs = [non_seq_inputs, seq_inputs, item_inputs]
         Model(inputs=inputs, outputs=self.call(inputs)).summary()
