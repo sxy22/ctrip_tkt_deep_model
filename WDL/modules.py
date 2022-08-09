@@ -59,7 +59,8 @@ class DNN(Layer):
     def __init__(self, hidden_units, activation='relu', dropout=0., w_reg=1e-6):
 
         super(DNN, self).__init__()
-        self.dnn_network = [Dense(units=unit, activation=activation, kernel_regularizer=l2(w_reg)) for unit in hidden_units]
+        self.dnn_network = [Dense(units=unit, activation=activation if activation != 'Dice' else Dice(),
+                                  kernel_regularizer=l2(w_reg)) for unit in hidden_units]
         self.dropout = Dropout(dropout)
 
     def call(self, inputs, **kwargs):
@@ -93,7 +94,8 @@ class Attention_Layer(Layer):
         """
         """
         super(Attention_Layer, self).__init__()
-        self.att_dense = [Dense(unit, activation=activation, kernel_regularizer=l2(w_reg)) for unit in att_hidden_units]
+        self.att_dense = [Dense(unit, activation=activation if activation != 'Dice' else Dice(),
+                                kernel_regularizer=l2(w_reg)) for unit in att_hidden_units]
         self.att_final_dense = Dense(1)
 
     def call(self, inputs):
@@ -127,7 +129,45 @@ class Attention_Layer(Layer):
 
         return outputs
 
+class Attention_Layer_nosoftmax(Layer):
+    def __init__(self, att_hidden_units, activation='relu', w_reg=1e-6):
+        """
+        """
+        super(Attention_Layer_nosoftmax, self).__init__()
+        self.att_dense = [Dense(unit, activation=activation if activation != 'Dice' else Dice(),
+                                kernel_regularizer=l2(w_reg)) for unit in att_hidden_units]
+        self.att_final_dense = Dense(1)
 
+    def call(self, inputs):
+        # query: candidate item  (None, d * 2), d is the dimension of embedding
+        # key: hist items  (None, seq_len, d * 2)
+        # value: hist items  (None, seq_len, d * 2)
+        # mask: (None, seq_len)
+        q, k, v, mask = inputs
+        q = tf.tile(q, multiples=[1, k.shape[1]])  # (None, seq_len * d * 2)
+        q = tf.reshape(q, shape=[-1, k.shape[1], k.shape[2]])  # (None, seq_len, d * 2)
+
+        # q, k, out product should concat
+        info = tf.concat([q, k, q - k, q * k], axis=-1)
+
+        # dense
+        for dense in self.att_dense:
+            info = dense(info)
+
+        outputs = self.att_final_dense(info)  # (None, seq_len, 1)
+        outputs = tf.squeeze(outputs, axis=-1)  # (None, seq_len)
+
+        # paddings = tf.ones_like(outputs) * (-2 ** 32 + 1)  # (None, seq_len)
+        outputs = tf.where(tf.equal(mask, 0), 0, outputs)  # (None, seq_len)
+
+        # softmax
+        # outputs = tf.nn.softmax(logits=outputs)  # (None, seq_len)
+        outputs = tf.expand_dims(outputs, axis=1)  # None, 1, seq_len)
+
+        outputs = tf.matmul(outputs, v)  # (None, 1, d * 2)
+        outputs = tf.squeeze(outputs, axis=1)
+
+        return outputs
 class Dice(Layer):
     def __init__(self):
         super(Dice, self).__init__()

@@ -13,7 +13,7 @@ from tensorflow.keras import Model
 from tensorflow.keras.layers import Dense, Embedding, Dropout, Input
 from tensorflow.keras.regularizers import l2
 
-from WDL.modules import Linear, DNN
+from WDL.modules import Linear, DNN, Dice
 
 class WideDeep(Model):
     def __init__(self, dense_feature_list, sparse_feature_list,

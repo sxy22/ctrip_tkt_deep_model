@@ -16,7 +16,7 @@ from tensorflow.keras import Model
 from tensorflow.keras.layers import Dense, Embedding, Dropout, Input
 from tensorflow.keras.regularizers import l2
 
-from WDL.modules import Linear, DNN, Attention_Layer
+from WDL.modules import Linear, DNN, Attention_Layer, Attention_Layer_nosoftmax
 
 class WideDeepDIN(Model):
     def __init__(self, dense_feature_list, sparse_feature_list,
@@ -40,10 +40,13 @@ class WideDeepDIN(Model):
         self.behavior_feature_list = behavior_feature_list # 序列特征(离散)
         self.seq_len = seq_len # 序列长度(定长)
         self.behavior_num = len(self.behavior_feature_list) #
-        self.attention_layer = Attention_Layer(att_hidden_units, att_activation, w_reg=att_w_reg) # attention layer
+        print('nosoftmax')
+        self.attention_layer = Attention_Layer_nosoftmax(att_hidden_units, att_activation, w_reg=att_w_reg) # attention layer
 
         self.all_feature_list = dense_feature_list + sparse_feature_list  # 所有特征 [连续， 离散]
         self.feature_idx = {feat['feat_name']: i for i, feat in enumerate(self.all_feature_list)} # 特征顺序记录
+
+
 
         if len(wide_feature_list) == 0:  # wide侧默认使用全部特征
             wide_feature_list = self.all_feature_list
