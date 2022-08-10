@@ -22,7 +22,7 @@ class WideDeepDIN(Model):
     def __init__(self, dense_feature_list, sparse_feature_list,
                  wide_feature_list=[], deep_feature_list=[], hidden_units=[64, 32], activation='relu',
                  behavior_feature_list=[], att_hidden_units=[40, 20], att_activation='relu', seq_len=-1,
-                 dnn_dropout=0.1, embed_reg=1e-6, w_reg=1e-6, att_w_reg=1e-6):
+                 dnn_dropout=0.1, embed_reg=1e-6, w_reg=1e-6, att_w_reg=1e-6, att_softmax=True):
         """
         @param dense_feature_list: dense features, [dict()]
         @param sparse_feature_list: sparse features, [dict()]
@@ -40,9 +40,10 @@ class WideDeepDIN(Model):
         self.behavior_feature_list = behavior_feature_list # 序列特征(离散)
         self.seq_len = seq_len # 序列长度(定长)
         self.behavior_num = len(self.behavior_feature_list) #
-        print('nosoftmax')
-        self.attention_layer = Attention_Layer_nosoftmax(att_hidden_units, att_activation, w_reg=att_w_reg) # attention layer
-
+        if att_softmax:
+            self.attention_layer = Attention_Layer(att_hidden_units, att_activation, w_reg=att_w_reg) # attention layer
+        else:
+            self.attention_layer = Attention_Layer_nosoftmax(att_hidden_units, att_activation, w_reg=att_w_reg) # attention layer
         self.all_feature_list = dense_feature_list + sparse_feature_list  # 所有特征 [连续， 离散]
         self.feature_idx = {feat['feat_name']: i for i, feat in enumerate(self.all_feature_list)} # 特征顺序记录
 
@@ -138,8 +139,8 @@ class WideDeepDIN(Model):
         else:
             deep_inputs = deep_sparse_input_embed
 
-        # 连接上attention输出
-        deep_inputs = tf.concat([deep_inputs, att_output], axis=-1)
+        # 连接上attention输出和 item_embed
+        deep_inputs = tf.concat([deep_inputs, att_output, item_input_embed], axis=-1)
         deep_out = self.dnn_network(deep_inputs)
         deep_out = self.final_dense(deep_out)
         # out

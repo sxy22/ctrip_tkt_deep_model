@@ -158,7 +158,7 @@ class Attention_Layer_nosoftmax(Layer):
         outputs = tf.squeeze(outputs, axis=-1)  # (None, seq_len)
 
         # paddings = tf.ones_like(outputs) * (-2 ** 32 + 1)  # (None, seq_len)
-        outputs = tf.where(tf.equal(mask, 0), 0, outputs)  # (None, seq_len)
+        outputs = tf.where(tf.equal(mask, 0), 0.0, outputs)  # (None, seq_len)
 
         # softmax
         # outputs = tf.nn.softmax(logits=outputs)  # (None, seq_len)
