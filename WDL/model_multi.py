@@ -3,9 +3,9 @@
 
 """
 @Project: ctrip_tkt_deep_model
-@File   : model.py
+@File   : model_multi.py
 @Author : sichenghe(sichenghe@trip.com)
-@Time   : 2022/7/28 
+@Time   : 2022/7/28
 """
 
 import tensorflow as tf
@@ -15,9 +15,10 @@ from tensorflow.keras.regularizers import l2
 
 from WDL.modules import Linear, DNN, Dice
 
-class WideDeep(Model):
+class WideDeep_multi(Model):
     def __init__(self, dense_feature_list, sparse_feature_list,
                  wide_feature_list=[], deep_feature_list=[], hidden_units=[64, 32], activation='relu',
+                 multihot_list=[], shared_list=[],
                  dnn_dropout=0.1, embed_reg=1e-6, w_reg=1e-6):
         """
         @param dense_feature_list: dense features, [dict()]
@@ -30,9 +31,10 @@ class WideDeep(Model):
         @param embed_reg: The regularizer of embedding.
         @param w_reg: The regularizer of Linear.
         """
-        super(WideDeep, self).__init__()
+        super(WideDeep_multi, self).__init__()
         self.dense_feature_list = dense_feature_list  # 连续特征
         self.sparse_feature_list = sparse_feature_list  # 离散特征
+        self.multihot_list = multihot_list # multihot 特征
         all_feature_list = dense_feature_list + sparse_feature_list  # 所有特征 [连续， 离散]
         self.feature_idx = {feat['feat_name']: i for i, feat in enumerate(all_feature_list)} # 特征顺序记录
 
@@ -55,13 +57,21 @@ class WideDeep(Model):
                                         if feat['type'] == 'sparse']  # wide侧的离散特征
 
         # deep侧sparse feature的embed layer(只有deep部分离散特征需要embed)
-        self.embed_layers = {
-            'embed_' + feat['feat_name']: Embedding(input_dim=feat['feat_num'] + 1, # 0 留给未知/无
-                                         input_length=1,
-                                         output_dim=feat['embed_dim'],
+        # cityid shared embedding
+        cityid_feature = {'districtid_enc_index', 'user_residgscityid_enc_index', 'localdistrictid_enc_index'}
+        cityid_shared_embedding = Embedding(input_dim=shared_list[0]['feat_num'] + 1, # 0 留给未知/无
+                                         # input_length=1,
+                                         output_dim=shared_list[0]['embed_dim'],
                                          embeddings_initializer='random_uniform',
                                          embeddings_regularizer=l2(embed_reg))
-            for i, feat in enumerate(self.deep_sparse_feature_list)
+
+        self.embed_layers = {
+            'embed_' + feat['feat_name']: Embedding(input_dim=feat['feat_num'] + 1, # 0 留给未知/无
+                                         # input_length=1,
+                                         output_dim=feat['embed_dim'],
+                                         embeddings_initializer='random_uniform',
+                                         embeddings_regularizer=l2(embed_reg)) if feat['feat_name'] not in cityid_feature else cityid_shared_embedding
+            for i, feat in enumerate(self.deep_sparse_feature_list + self.multihot_list)
         }
 
         # wide 部分变量记录累计长度，初始化wide部分的dense layer
@@ -76,7 +86,15 @@ class WideDeep(Model):
         self.linear = Linear(self.feature_length, w_reg=w_reg)
         self.final_dense = Dense(1, activation=None, kernel_regularizer=l2(w_reg))
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs: "[inputs, multi_inputs]", **kwargs):
+        inputs, multi_inputs = inputs
+        multi_inputs_embed = None
+        if len(self.multihot_list) != 0:
+            multi_inputs_embed = tf.concat([self._get_multihot_input(multi_inputs[i], feat)
+                                            for i, feat in enumerate(self.multihot_list)], axis=-1)
+        # return multi_inputs_embed
+        # print(tf.math.is_nan(multi_inputs_embed))
+
         wide_dense_input, wide_sparse_input, deep_dense_input, deep_sparse_input = self._get_input(inputs)
         # deep侧sparse embedding
         # batch, len * embed_dim
@@ -101,6 +119,10 @@ class WideDeep(Model):
             deep_inputs = deep_dense_input
         else:
             deep_inputs = deep_sparse_input_embed
+
+        #连接上multihot特征embed
+        if multi_inputs_embed is not None:
+            deep_inputs = tf.concat([deep_inputs, multi_inputs_embed], axis=-1)
 
         deep_out = self.dnn_network(deep_inputs)
         deep_out = self.final_dense(deep_out)
@@ -142,9 +164,12 @@ class WideDeep(Model):
 
     def _get_multihot_input(self, inputs, feat):
         # inputs: batch, len
+        inputs = tf.cast(inputs, tf.int32)
         weights = tf.cast(tf.not_equal(inputs, 0), dtype=tf.float32) # batch, len
-        weights = weights / tf.reduce_sum(weights, axis=-1, keepdims=True)
+        weights = weights / (tf.reduce_sum(weights, axis=-1, keepdims=True) + 1e-5)
+        weights = tf.expand_dims(weights, axis=-1)
         ebd = self.embed_layers['embed_' + feat['feat_name']](inputs) # batch, len，dim
+
         return tf.reduce_sum(weights * ebd, axis=1) # batch，dim
 
 
@@ -153,7 +178,12 @@ class WideDeep(Model):
         print('deep side featrues: ', ','.join(feat['feat_name']for feat in self.deep_feature_list))
         inputs = [Input(shape=(1,), dtype=tf.float32) for _ in
                   range(self.len_dense_feature + self.len_sparse_feature)]
-        Model(inputs=inputs, outputs=self.call(inputs)).summary()
+
+        multi_inputs = [Input(shape=(5,), dtype=tf.float32) for _ in range(len(self.multihot_list))]
+        outputs = self.call([inputs, multi_inputs])
+        print(outputs.shape)
+        Model(inputs=[inputs, multi_inputs], outputs=outputs).summary()
+
 
 # class WideDeep(Model):
 #     def __init__(self, feature_columns, hidden_units, activation='relu',
